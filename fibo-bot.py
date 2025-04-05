@@ -13,9 +13,19 @@ if not BOT_TOKEN:
     raise ValueError("No TELEGRAM_BOT_TOKEN environment variable set!") # Or log and exit
 
 REMINDER_INTERVALS_SECONDS = [
-    5 * 60,      # 5 minutes
-    15 * 60,     # 15 minutes
-    30 * 60     # 30 minutes
+    1440 * 60,      # 1 day
+    2880 * 60,      # 2 days
+    5760 * 60,      # 4 days
+    11520 * 60,     # 8 days
+    17280 * 60,     # 12 days
+    23040 * 60,     # 16 days
+    28800 * 60,     # 20 days
+    37440 * 60,     # 26 days
+    48960 * 60,     # 34 days
+    69120 * 60,     # 48 days
+    86440 * 60,     # 60 days
+    115200 * 60,    # 80 days
+    144000 * 60     # 100 days
 ]
 # --- End Configuration ---
 
