@@ -4,7 +4,7 @@ Are you learning English? Do you find yourself constantly encountering new words
 
 Imagine a smarter way. Imagine a tool that seamlessly integrates into your daily life, works *with* your brain's natural learning process, and helps you solidify new words almost effortlessly.
 
-Introducing **[Your Bot's Name - Suggestion: VocabFlow Bot / EchoLearn Bot / WordWeaver Bot - *replace this bracket and choose a name*]**, your personal vocabulary retention assistant, right inside Telegram! This isn't just another flashcard app; it's a sophisticated yet incredibly simple bot designed to leverage the power of **Spaced Repetition System (SRS)**, transforming the way you learn and remember English words.
+Introducing **Fibo-bot**, your personal vocabulary retention assistant, right inside Telegram! This isn't just another flashcard app; it's a sophisticated yet incredibly simple bot designed to leverage the power of **Spaced Repetition System (SRS)**, transforming the way you learn and remember English words.
 
 **Why Do We Forget? And How Fibo-bot Solves It**
 
