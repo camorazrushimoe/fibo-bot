@@ -1,3 +1,9 @@
-# requirements.txt
-python-telegram-bot[job-queue]
-eng_to_ipa
+python-telegram-bot[job-queue]~=21.1
+eng_to_ipa~=0.0.2
+translate~=3.6
+openai~=1.0
+# httpx and httpcore versions are critical for python-telegram-bot
+# Let pip resolve them based on python-telegram-bot's needs, or pin if conflicts arise
+# Example:
+# httpx~=0.27.0
+# httpcore~=1.0.2 
