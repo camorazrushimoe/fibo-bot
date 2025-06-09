@@ -42,7 +42,7 @@ try:
 except ImportError: OPENAI_AVAILABLE = False; _initial_logger.warning("OpenAI lib not found. AI disabled. `pip install openai`")
 
 # --- Configuration ---
-BOT_TOKEN = "Telegram token" # YOUR TOKEN
+BOT_TOKEN = "Telegram token here" # YOUR TOKEN
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO, force=True)
 logger = logging.getLogger(__name__)
@@ -170,6 +170,7 @@ def generate_dictionary_text(
     display_items_list = []
     processed_active_words = set()
     active_display_map = {}
+
     for job in job_queue.jobs():
         if job and job.chat_id == chat_id and job.data and 'message_text' in job.data and not job.removed:
             msg_txt = job.data['message_text']
@@ -186,8 +187,10 @@ def generate_dictionary_text(
                 job.next_run_time < active_display_map[msg_txt]['next_run_dt']):
                 active_display_map[msg_txt]['next_run_dt'] = job.next_run_time
             processed_active_words.add(msg_txt)
+
     for msg_txt, data in active_display_map.items():
         display_items_list.append((msg_txt, data['reminders_left'], data['next_run_dt'], data['job_data'], data['status'], None))
+
     user_b2_pack_info = user_specific_data.get(USER_PACK_DATA_KEY)
     if user_b2_pack_info and 'pack_words_status' in user_b2_pack_info:
         for pack_word_obj in user_b2_pack_info['pack_words_status']:
@@ -196,6 +199,7 @@ def generate_dictionary_text(
                 display_items_list.append((word, len(REMINDER_INTERVALS_SECONDS), None,
                                            {'is_pack_word': True, 'pack_source': 'b2plus', 'learning_start_date': est_start_date, 'message_text':word},
                                            'pending_pack_b2plus', est_start_date))
+
     user_lux_pack_info = user_specific_data.get(USER_LUX_PACK_DATA_KEY)
     if user_lux_pack_info and 'pack_words_status' in user_lux_pack_info:
         for pack_word_obj in user_lux_pack_info['pack_words_status']:
@@ -204,14 +208,18 @@ def generate_dictionary_text(
                 display_items_list.append((word, len(REMINDER_INTERVALS_SECONDS), None,
                                            {'is_pack_word': True, 'pack_source': 'luxembourg', 'learning_start_date': est_start_date, 'message_text':word},
                                            'pending_pack_luxembourg', est_start_date))
-    if not display_items_list: return "Dictionary empty. Add words or start a Pack!", [], 1, 1
+
+    if not display_items_list: return "Your learning dictionary is empty. Add some items or start a pack! 🚀", [], 1, 1
+
     if sort_key_func:
         try: display_items_list.sort(key=sort_key_func, reverse=sort_reverse)
         except Exception as e_sort: logger.error(f"Sort error:{e_sort}")
+
     total_items = len(display_items_list)
     paginated_items = []
     is_all_items_mode = (items_per_page == float('inf')) or \
                         (total_items > 0 and isinstance(items_per_page, (int, float)) and items_per_page >= total_items)
+
     if is_all_items_mode:
         paginated_items = display_items_list
         current_page_for_display = 1
@@ -227,46 +235,80 @@ def generate_dictionary_text(
             start_index = (current_page_for_display - 1) * actual_items_per_page
             end_index = start_index + actual_items_per_page
             paginated_items = display_items_list[start_index:end_index]
-    response_text = f"📚 Your Learning Dictionary (Page {current_page_for_display}/{total_pages_for_display}):\n\n"
+
+    response_text = f"📚 **Your Learning Dictionary** (Page {current_page_for_display}/{total_pages_for_display})\n"
+    response_text += "------------------------------------\n" # Visual separator
+
     if not paginated_items and total_items > 0:
         response_text += "No items on this page.\n"
-    elif not paginated_items and total_items == 0:
-        response_text += "Dictionary is currently empty.\n"
+    elif not paginated_items and total_items == 0: # Should be caught by earlier check
+        response_text += "Your dictionary is currently empty.\n"
+
     for msg_txt, reminders_left, next_run_dt, job_data_item, item_status_str, estimated_start_date in paginated_items:
-        info_str = "N/A"; is_pack_word_flag = job_data_item.get('is_pack_word', False); pack_source_from_job = job_data_item.get('pack_source')
-        status_display_parts = []
-        if item_status_str.startswith('pending_pack_'): status_display_parts.append("Pending")
-        elif item_status_str.startswith('active_pack_'): status_display_parts.append("Active")
-        elif item_status_str.startswith('active_user'): status_display_parts.append("Active (User)")
-        else: status_display_parts.append(item_status_str.replace("_", " ").title())
-        if pack_source_from_job == 'b2plus': status_display_parts.append("(B2+ Pack)")
-        elif pack_source_from_job == 'luxembourg': status_display_parts.append("(Luxembourg Pack)")
-        status_display = " ".join(status_display_parts)
+        time_info_str = "N/A"
+        is_pack_word_flag = job_data_item.get('is_pack_word', False)
+        pack_source_from_job = job_data_item.get('pack_source')
         actual_learning_start_date_str = job_data_item.get('learning_start_date')
-        if item_status_str.startswith('pending_pack_') and estimated_start_date: info_str = f"Starts around: {estimated_start_date}"
+
+        status_emoji = ""
+        pack_emoji = ""
+        status_text = ""
+
+        if item_status_str.startswith('pending_pack_'):
+            status_emoji = "⏳"
+            status_text = "Pending"
+            if pack_source_from_job == 'b2plus': pack_emoji = "🇬🇧"
+            elif pack_source_from_job == 'luxembourg': pack_emoji = "🇱🇺"
+        elif item_status_str.startswith('active_pack_'):
+            status_emoji = "🟢"
+            status_text = "Active"
+            if pack_source_from_job == 'b2plus': pack_emoji = "🇬🇧"
+            elif pack_source_from_job == 'luxembourg': pack_emoji = "🇱🇺"
+        elif item_status_str.startswith('active_user'):
+            status_emoji = "✅"
+            pack_emoji = "👤" # User added
+            status_text = "Active"
+        else: # Fallback for any other status string
+            status_text = item_status_str.replace("_", " ").title()
+
+
+        if item_status_str.startswith('pending_pack_') and estimated_start_date:
+            time_info_str = f"Starts: {estimated_start_date}"
         elif item_status_str.startswith('active_') and next_run_dt:
             show_actual_learning_start_date = False
             if is_pack_word_flag and actual_learning_start_date_str and REMINDER_INTERVALS_SECONDS:
                 try:
                     tz_info = next_run_dt.tzinfo or datetime.timezone.utc
                     learning_start_dt_obj = datetime.datetime.strptime(actual_learning_start_date_str, "%Y-%m-%d").replace(tzinfo=tz_info)
-                    current_interval_idx = job_data_item.get('current_interval_index', 0)
-                    if current_interval_idx == 0:
+                    current_interval_idx = job_data_item.get('current_interval_index', 0) # Ensure this is in job_data
+                    if current_interval_idx == 0 and len(REMINDER_INTERVALS_SECONDS) > 0: # Only for the first reminder
                         expected_first_rem_time = learning_start_dt_obj + datetime.timedelta(seconds=REMINDER_INTERVALS_SECONDS[0])
                         if abs((next_run_dt - expected_first_rem_time).total_seconds()) < 60*10 and next_run_dt > now_datetime.astimezone(tz_info):
-                            show_actual_learning_start_date = True; info_str = f"Active since: {actual_learning_start_date_str}"
+                            show_actual_learning_start_date = True
+                            time_info_str = f"Active since: {actual_learning_start_date_str}"
                 except ValueError: logger.error(f"Parse err: {actual_learning_start_date_str} for {msg_txt}")
+            
             if not show_actual_learning_start_date:
                 diff = next_run_dt - now_datetime.astimezone(next_run_dt.tzinfo or datetime.timezone.utc)
                 if diff.total_seconds() > 0:
-                    d = diff.total_seconds() / 86400
-                    if d < (1/24): info_str = f"in ~{int(round(d*1440))} min"
-                    elif d < 1: info_str = f"in ~{int(round(d*24))} hr(s)"
-                    else: info_str = f"in ~{int(round(d))} day(s)"
-                else: info_str = "Soon/Past"
-        elif item_status_str.startswith('active_'): info_str = "Active (Next N/A)"
-        response_text += f"- {msg_txt} (Reminders: {reminders_left}, Status: {status_display} - {info_str})\n"
-    response_text += "\nThese are your learning items."
+                    days = diff.days
+                    hours, remainder = divmod(diff.seconds, 3600)
+                    minutes, _ = divmod(remainder, 60)
+                    if days > 0: time_info_str = f"Next in: ~{days}d {hours}h"
+                    elif hours > 0: time_info_str = f"Next in: ~{hours}h {minutes}m"
+                    elif minutes > 0: time_info_str = f"Next in: ~{minutes}m"
+                    else: time_info_str = "Next in: <1 min" # Or "Soon"
+                else: time_info_str = "Next: Soon/Past"
+        elif item_status_str.startswith('active_'): # Fallback if next_run_dt is None for an active item
+            time_info_str = "Next: N/A"
+        
+        # Use html.escape for msg_txt to prevent markdown issues if it contains * or _
+        escaped_msg_txt = html.escape(msg_txt)
+        response_text += f"{status_emoji} **{escaped_msg_txt}** {pack_emoji}\n"
+        response_text += f"   `Reminders: {reminders_left} | {status_text} | {time_info_str}`\n"
+        response_text += "------------------------------------\n" # Visual separator
+
+    response_text += "\n_These are your learning items._"
     return response_text, display_items_list, current_page_for_display, total_pages_for_display
 
 async def send_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
