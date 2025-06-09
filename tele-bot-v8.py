@@ -42,7 +42,7 @@ try:
 except ImportError: OPENAI_AVAILABLE = False; _initial_logger.warning("OpenAI lib not found. AI disabled. `pip install openai`")
 
 # --- Configuration ---
-BOT_TOKEN = "Telegram Token" # YOUR TOKEN
+BOT_TOKEN = "Telegram token" # YOUR TOKEN
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO, force=True)
 logger = logging.getLogger(__name__)
@@ -84,63 +84,41 @@ CALLBACK_AI_EXPLAIN = "ai_explain:"
 CALLBACK_SORT_DICT = "sort_dict:"
 CALLBACK_DICT_PAGE_NEXT = "dict_pg_n:"
 CALLBACK_DICT_PAGE_PREV = "dict_pg_p:"
-# --- NEW: Callback prefixes for starting packs ---
 CALLBACK_START_B2_PACK = "start_b2_pack"
 CALLBACK_START_LUX_PACK = "start_lux_pack"
-CALLBACK_START_JULIE_PACK = "start_julie_pack" # Placeholder
-# --- END NEW ---
+CALLBACK_START_JULIE_PACK = "start_julie_pack"
 
 # --- Reply Keyboard Button Texts ---
 LEARNING_DICT_BUTTON_TEXT = "📚 Learning Dictionary"
-# ADD_CURATED_PACK_BUTTON_TEXT = "➕ Pre-defined Vocabulary Pack (B2+ | 1 USD)" # Will be removed
-# JULIE_PACK_BUTTON_TEXT = "🎓 Julie Stolyarchuk's Pack" # Will be removed
-# LUXEMBOURG_PACK_BUTTON_TEXT = "🇱🇺 20 Luxembourg Phrases" # Will be removed
-
-# --- NEW: Main Pack Button Text ---
 SHOW_VOCABULARY_PACKS_BUTTON_TEXT = "🎁 Pre-defined Vocabulary Packs"
-# --- END NEW ---
-
 RANDOM_WORD_BUTTON_TEXT = "🎲 Random Word"
 RUN_QUIZ_BUTTON_TEXT = "📝 Run Quiz"
 
-
-# --- For internal reference for pack details ---
-# These won't be button texts directly anymore but used for descriptions
 _B2_PACK_BUTTON_TEXT_INTERNAL = "➕ Pre-defined Vocabulary Pack (B2+ | 1 USD)"
 _JULIE_PACK_BUTTON_TEXT_INTERNAL = "🎓 Julie Stolyarchuk's Pack"
 _LUXEMBOURG_PACK_BUTTON_TEXT_INTERNAL = "🇱🇺 20 Luxembourg Phrases"
 
-
-# --- MODIFIED: REPLY_KEYBOARD ---
 REPLY_KEYBOARD = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(LEARNING_DICT_BUTTON_TEXT)],
-        [KeyboardButton(SHOW_VOCABULARY_PACKS_BUTTON_TEXT)], # NEW Main Pack Button
+        [KeyboardButton(SHOW_VOCABULARY_PACKS_BUTTON_TEXT)],
         [KeyboardButton(RANDOM_WORD_BUTTON_TEXT), KeyboardButton(RUN_QUIZ_BUTTON_TEXT)]
     ],
     resize_keyboard=True, input_field_placeholder="Enter word/phrase or select..."
 )
-# --- END MODIFIED ---
 
 # --- Constants for Pack & Dictionary Display ---
-# B2+ Pack
 USER_PACK_DATA_KEY = "curated_pack_data_v3"
 PACK_SCHEDULER_JOB_NAME_PREFIX = "pack_scheduler_"
-# Luxembourg Pack
 USER_LUX_PACK_DATA_KEY = "lux_pack_data_v1"
 LUX_PACK_SCHEDULER_JOB_NAME_PREFIX = "lux_pack_scheduler_"
-# Julie's Pack (placeholder constants)
 USER_JULIE_PACK_DATA_KEY = "julie_pack_data_v1"
 JULIE_PACK_SCHEDULER_JOB_NAME_PREFIX = "julie_pack_scheduler_"
-
-
 MAX_PACK_WORDS_PER_DAY = 5
 MIN_DELAY_BETWEEN_PACK_WORDS_SECONDS = 3600
 WORDS_PER_PAGE = 25
 
-
-# --- Helper Functions (count_vowels, get_clue_and_translations, get_ai_explanation) ---
-# ... (These functions remain unchanged from your previous full code) ...
+# --- Helper Functions ---
 def count_vowels(text: str) -> int:
     return sum(1 for char in text if char in "aeiouAEIOU")
 
@@ -180,11 +158,6 @@ async def get_ai_explanation(word_or_phrase:str)->str:
         r=c.choices[0].message.content; return r.strip() if r else "AI no explanation."
     except Exception as e: logger.error(f"OpenAI Err:'{w}':{e}",exc_info=True); return "AI error."
 
-
-# --- generate_dictionary_text, send_reminder, start_command ---
-# ... (These functions remain largely unchanged from your previous full code,
-#     ensure generate_dictionary_text handles pack_source from job_data
-#     and send_reminder passes pack_source in delete callback) ...
 def generate_dictionary_text(
     chat_id: int,
     user_specific_data: dict,
@@ -326,17 +299,15 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         rf"Hi {user.mention_html()}! Send an English word/phrase. I'll use Spaced Repetition. Use buttons below for options.",
         reply_markup=REPLY_KEYBOARD )
 
-
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ai_text = "- **AI Explanations:** '✨ Explain (AI)' for AI insights (if available).\n" if OPENAI_AVAILABLE else ""
-    # NEW: Update help for the main pack button
     packs_info_text = (
         f"- **`{SHOW_VOCABULARY_PACKS_BUTTON_TEXT}`:** Explore available vocabulary packs:\n"
         "  - **Julie's Pack:** (Coming Soon) Developed by Julie for her students.\n"
         "  - **B2+ English Pack:** (1 USD) 79 most frequently used English words for B2+.\n"
         "  - **Luxembourg Phrases Pack:** (Free) 20 popular Luxembourgish phrases for A2.\n"
     )
-    julie_pack_help_text = "" # Covered by packs_info_text
+    julie_pack_help_text = ""
     random_quiz_text = (
         f"- **`{RANDOM_WORD_BUTTON_TEXT}`:** Get a random word from your active learning list.\n"
         f"- **`{RUN_QUIZ_BUTTON_TEXT}`:** (Coming Soon!) Test your knowledge.\n"
@@ -351,8 +322,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "3. **Recall:** Actively recall meaning on reminder.\n\n"
         "**Features:**\n"
         f"- **`{LEARNING_DICT_BUTTON_TEXT}`:** View paginated list of active AND planned items, reminders left, next due/start time (now {WORDS_PER_PAGE} per page).\n"
-        f"{packs_info_text}" # MODIFIED
-        f"{julie_pack_help_text}" # Can be removed or kept if other Julie info exists
+        f"{packs_info_text}"
+        f"{julie_pack_help_text}"
         f"{random_quiz_text}"
         "- **Delete Items:** '🗑️ Delete' on reminders (for active items).\n"
         "- **Clue & Translate:** '💡 Clue/Translate' for phonetic hint & translations.\n"
@@ -362,9 +333,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "Happy learning! 🚀 /start" )
     await update.message.reply_text(help_text, reply_markup=REPLY_KEYBOARD, parse_mode='Markdown')
 
-# --- show_dictionary_command_wrapper, schedule_reminders_for_word, handle_user_message_for_scheduling ---
-# ... (These functions remain largely unchanged from your previous full code,
-#     schedule_reminders_for_word already takes pack_source_id) ...
 async def show_dictionary_command_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE,
                                           page_number: int = 1,
                                           sort_key_func=None,
@@ -461,9 +429,6 @@ async def handle_user_message_for_scheduling(update: Update, context: ContextTyp
         await update.message.reply_text(f"✅ Added '{user_msg}'!\n{first_txt} Total {len(REMINDER_INTERVALS_SECONDS)}.", reply_markup=REPLY_KEYBOARD)
     else: await update.message.reply_text(f"ℹ️ '{user_msg}' might already be in your dictionary or an error occurred.", reply_markup=REPLY_KEYBOARD)
 
-
-# --- B2+ Pack Processing (process_curated_pack_for_user, add_curated_words_command) ---
-# ... (These functions remain unchanged from your previous full code) ...
 async def process_curated_pack_for_user(context: ContextTypes.DEFAULT_TYPE) -> None:
     job = context.job; chat_id = job.chat_id; user_id = job.user_id
     user_data_for_chat = context.user_data
@@ -527,22 +492,21 @@ async def add_curated_words_command(update: Update, context: ContextTypes.DEFAUL
     total_words, days_intro = len(CURATED_VOCABULARY_PACK), math.ceil(len(CURATED_VOCABULARY_PACK)/MAX_PACK_WORDS_PER_DAY)
     await context.bot.send_message(chat_id, f"Great! B2+ Pack ({total_words} words) added. Up to {MAX_PACK_WORDS_PER_DAY} daily. ~{days_intro} days for all to activate. Check '📚 Learning Dictionary'!", reply_markup=REPLY_KEYBOARD if not called_from_callback else None)
     logger.info(f"B2+ Curated pack for user {user_id} (chat {chat_id}). Job '{job_name}' on.")
-    class MinimalJob:
-        def __init__(self,cid, uid):self.chat_id=cid; self.user_id = uid; self.name=f"init_pack_{cid}"
+    
+    original_job = getattr(context, 'job', None)
+    class MinimalJobForInitialRun:
+        def __init__(self,cid, uid):self.chat_id=cid; self.user_id = uid; self.name=f"init_b2_pack_{cid}"
         def schedule_removal(self):pass
-    temp_job = MinimalJob(chat_id, user_id)
-    temp_ctx=ContextTypes.DEFAULT_TYPE(application=context.application,bot=context.bot, chat_data=context.chat_data.copy(), user_data=context.user_data.copy())
-    temp_ctx.job=temp_job
+    context.job = MinimalJobForInitialRun(chat_id, user_id)
+
     logger.info(f"Initial B2+ pack processing for user {user_id} (chat {chat_id})...")
     for _ in range(MAX_PACK_WORDS_PER_DAY+1):
-        if USER_PACK_DATA_KEY not in temp_ctx.user_data or temp_ctx.user_data[USER_PACK_DATA_KEY].get('status')=='completed':break
-        await process_curated_pack_for_user(temp_ctx)
-        if temp_ctx.user_data.get(USER_PACK_DATA_KEY,{}).get("words_scheduled_today",0)>=MAX_PACK_WORDS_PER_DAY:break
+        if USER_PACK_DATA_KEY not in context.user_data or context.user_data[USER_PACK_DATA_KEY].get('status')=='completed':break
+        await process_curated_pack_for_user(context)
+        if context.user_data.get(USER_PACK_DATA_KEY,{}).get("words_scheduled_today",0)>=MAX_PACK_WORDS_PER_DAY:break
+    context.job = original_job
     logger.info(f"Initial B2+ pack proc for user {user_id} (chat {chat_id}) done.")
 
-
-# --- Luxembourg Pack Functions (process_luxembourg_pack_for_user, add_luxembourg_pack_command) ---
-# ... (These functions remain unchanged from your previous full code) ...
 async def process_luxembourg_pack_for_user(context: ContextTypes.DEFAULT_TYPE) -> None:
     job = context.job; chat_id = job.chat_id; user_id = job.user_id
     user_data_for_chat = context.user_data
@@ -607,29 +571,26 @@ async def add_luxembourg_pack_command(update: Update, context: ContextTypes.DEFA
     days_intro = math.ceil(total_items / MAX_PACK_WORDS_PER_DAY)
     await context.bot.send_message(chat_id, f"Great! Luxembourg Phrases Pack ({total_items} items) added. Up to {MAX_PACK_WORDS_PER_DAY} daily. ~{days_intro} days for all items to activate. Check '📚 Learning Dictionary'!", reply_markup=REPLY_KEYBOARD if not called_from_callback else None)
     logger.info(f"Luxembourg Phrases pack for user {user_id} (chat {chat_id}). Job '{job_name}' on.")
-    class MinimalJob:
+
+    original_job = getattr(context, 'job', None)
+    class MinimalJobForInitialRun:
         def __init__(self, cid, uid): self.chat_id = cid; self.user_id = uid; self.name = f"init_lux_pack_{cid}"
         def schedule_removal(self): pass
-    temp_job = MinimalJob(chat_id, user_id)
-    temp_ctx = ContextTypes.DEFAULT_TYPE(application=context.application, bot=context.bot, chat_data=context.chat_data.copy(), user_data=context.user_data.copy())
-    temp_ctx.job = temp_job
+    context.job = MinimalJobForInitialRun(chat_id, user_id)
+
     logger.info(f"Initial Luxembourg pack processing for user {user_id} (chat {chat_id})...")
     for _ in range(MAX_PACK_WORDS_PER_DAY + 1):
-        if USER_LUX_PACK_DATA_KEY not in temp_ctx.user_data or temp_ctx.user_data[USER_LUX_PACK_DATA_KEY].get('status') == 'completed': break
-        await process_luxembourg_pack_for_user(temp_ctx)
-        if temp_ctx.user_data.get(USER_LUX_PACK_DATA_KEY, {}).get("words_scheduled_today", 0) >= MAX_PACK_WORDS_PER_DAY: break
+        if USER_LUX_PACK_DATA_KEY not in context.user_data or context.user_data[USER_LUX_PACK_DATA_KEY].get('status') == 'completed': break
+        await process_luxembourg_pack_for_user(context)
+        if context.user_data.get(USER_LUX_PACK_DATA_KEY, {}).get("words_scheduled_today", 0) >= MAX_PACK_WORDS_PER_DAY: break
+    context.job = original_job
     logger.info(f"Initial Luxembourg pack proc for user {user_id} (chat {chat_id}) done.")
 
-
-# --- Julie's Pack (Placeholder) ---
 async def julie_pack_placeholder_command(update: Update, context: ContextTypes.DEFAULT_TYPE, called_from_callback: bool = False) -> None:
     chat_id = update.effective_chat.id
     logger.info(f"User {chat_id} (user: {update.effective_user.id}) interacted with Julie's Pack option.")
     await context.bot.send_message(chat_id, "🌟 Julie Stolyarchuk's Pack is coming soon! Stay tuned.", reply_markup=REPLY_KEYBOARD if not called_from_callback else None)
 
-
-# --- random_word_command, run_quiz_placeholder_command ---
-# ... (These functions remain unchanged from your previous full code) ...
 async def random_word_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id; user_specific_data = context.user_data
     _, all_items_list, _, _ = generate_dictionary_text(chat_id, user_specific_data, context.job_queue, page_number=1, items_per_page=float('inf'))
@@ -648,79 +609,57 @@ async def run_quiz_placeholder_command(update: Update, context: ContextTypes.DEF
     logger.info(f"User {chat_id} clicked placeholder button: {RUN_QUIZ_BUTTON_TEXT}")
     await update.message.reply_text("📝 The Quiz feature will be available soon! Keep learning!", reply_markup=REPLY_KEYBOARD)
 
-
-# --- NEW: Handler for "Pre-defined vocabulary packs" button ---
 async def show_vocabulary_packs_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     user = update.effective_user
     logger.info(f"User {user.id} in chat {chat_id} requested to see vocabulary packs.")
-
     await update.message.reply_text("Here are our pre-defined vocabulary packs:", reply_markup=REPLY_KEYBOARD)
-
-    # Julie's Pack
     julie_description = "🎓 **Julie Stolyarchuk's Pack**\nIt's a pack developed by Julie which helps her students run her program more efficiently.\n*Price: Coming Soon*"
     julie_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Start Learning (Coming Soon)", callback_data=CALLBACK_START_JULIE_PACK)]])
     await context.bot.send_message(chat_id=chat_id, text=julie_description, reply_markup=julie_keyboard, parse_mode='Markdown')
-
-    # B2+ Pack
     b2_description = "🇬🇧 **B2+ English Pack**\n79 most frequently used English words for B2+ speakers.\n*Price: 1 USD*"
     b2_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Start Learning B2+ Pack", callback_data=CALLBACK_START_B2_PACK)]])
     await context.bot.send_message(chat_id=chat_id, text=b2_description, reply_markup=b2_keyboard, parse_mode='Markdown')
-
-    # Luxembourg Pack
     lux_description = "🇱🇺 **Luxembourg Phrases Pack**\nThe most popular 20 phrases for A2 level.\n*Price: Free*"
     lux_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Start Learning Luxembourg Pack", callback_data=CALLBACK_START_LUX_PACK)]])
     await context.bot.send_message(chat_id=chat_id, text=lux_description, reply_markup=lux_keyboard, parse_mode='Markdown')
-# --- END NEW ---
 
-
-# --- MODIFIED: button_callback_handler ---
 async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query; await query.answer(); callback_data_full = query.data; chat_id = query.message.chat_id
+    query = update.callback_query; await query.answer(); callback_data_full = query.data; chat_id = query.message.chat.id # Corrected: query.message.chat.id
     logger.info(f"Callback from chat {chat_id} (user: {query.from_user.id}): {callback_data_full}")
-
-    chat_specific_settings = context.chat_data
-    user_specific_data = context.user_data
-
-    # Create a simplified Update-like object for calling pack add commands from callback
-    # This is a workaround to reuse the existing add_..._pack_command functions
+    
+    # simplified_update_obj is created based on the query, not the main handler's update
     class SimplifiedUpdate:
         def __init__(self, effective_chat, effective_user, message=None):
             self.effective_chat = effective_chat
             self.effective_user = effective_user
-            self.message = message # The add commands expect update.message.reply_text
-
-    # The original message from the callback query doesn't have .reply_text
-    # We need to ensure the add_..._pack_command uses context.bot.send_message if called from callback
-    # So, we add a 'called_from_callback' flag to the add_..._pack_command functions.
+            # The add_..._pack_command functions were modified to use context.bot.send_message
+            # when called_from_callback is True, so self.message might not be strictly needed
+            # for reply_text, but it's good to have for consistency if other parts of Update are used.
+            self.message = message 
 
     simplified_update_obj = SimplifiedUpdate(
-        effective_chat=Chat(id=chat_id, type=Chat.PRIVATE), # Assuming private chat for simplicity
+        effective_chat=query.message.chat, # Use the chat object from the message the button is attached to
         effective_user=query.from_user
     )
-
-
+    
     try:
         if callback_data_full.startswith(CALLBACK_DELETE_REQUEST):
-            # ... (Deletion logic remains the same as your previous full code) ...
             data_content = callback_data_full[len(CALLBACK_DELETE_REQUEST):]; pack_source_delete = None; word_to_delete_action = data_content
             if ":" in data_content: pack_source_delete, word_to_delete_action = data_content.split(":", 1)
             cb_confirm = f"{CALLBACK_DELETE_CONFIRM}{data_content}"; cb_cancel = f"{CALLBACK_DELETE_CANCEL}{data_content}"
             if len(cb_confirm.encode()) > 64 or len(cb_cancel.encode()) > 64: await query.edit_message_text(f"{query.message.text}\n\n⚠️ Item identifier too long for confirmation.", reply_markup=None); return
             kbd = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Yes",callback_data=cb_confirm), InlineKeyboardButton("❌ No",callback_data=cb_cancel)]])
             await query.edit_message_text(f"❓ Remove \"{word_to_delete_action}\" from learning schedule?\n(Original: {query.message.text})", reply_markup=kbd)
-
         elif callback_data_full.startswith(CALLBACK_DELETE_CONFIRM):
-            # ... (Deletion confirmation logic remains the same) ...
             data_content = callback_data_full[len(CALLBACK_DELETE_CONFIRM):]; pack_source_confirm = None; word_to_delete = data_content
             if ":" in data_content: pack_source_confirm, word_to_delete = data_content.split(":", 1)
             if not context.job_queue: await query.edit_message_text("❌ Error: No schedule access.",reply_markup=None); return
-            word_updated_in_pack = False; pack_name_updated = ""
-            target_pack_data_key = None
+            word_updated_in_pack = False; pack_name_updated = ""; target_pack_data_key = None
             if pack_source_confirm == 'b2plus': target_pack_data_key = USER_PACK_DATA_KEY; pack_name_updated = "B2+ Pack"
             elif pack_source_confirm == 'luxembourg': target_pack_data_key = USER_LUX_PACK_DATA_KEY; pack_name_updated = "Luxembourg Phrases Pack"
-            if target_pack_data_key and target_pack_data_key in user_specific_data:
-                pack_data_store = user_specific_data.get(target_pack_data_key, {})
+            if target_pack_data_key and target_pack_data_key in context.user_data: # Use context.user_data directly
+                pack_data_store = context.user_data.get(target_pack_data_key, {})
                 if 'pack_words_status' in pack_data_store:
                     for pack_word_obj in pack_data_store['pack_words_status']:
                         if pack_word_obj['word'] == word_to_delete:
@@ -736,57 +675,47 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             else: response_msg += "not found active or planned."
             if word_updated_in_pack and removed_jobs_count > 0: response_msg += f" Status also updated in {pack_name_updated}."
             await query.edit_message_text(response_msg, reply_markup=None)
-
         elif callback_data_full.startswith(CALLBACK_DELETE_CANCEL):
-            # ... (Deletion cancellation logic remains the same) ...
             data_content = callback_data_full[len(CALLBACK_DELETE_CANCEL):]
             word_display = data_content.split(":",1)[-1] if ":" in data_content else data_content
             orig_txt_match = re.search(r"\(Original: (.*)\)", query.message.text,re.DOTALL)
             orig_txt = orig_txt_match.group(1).strip() if orig_txt_match else f"🔔 Reminder: {word_display}"
             await query.edit_message_text(f"{orig_txt}\n\n❌ Deletion cancelled.", reply_markup=None)
-
-        # --- NEW: Handle Start Pack Callbacks ---
         elif callback_data_full == CALLBACK_START_B2_PACK:
-            await query.edit_message_reply_markup(reply_markup=None) # Remove inline button
+            await query.edit_message_reply_markup(reply_markup=None)
             await add_curated_words_command(simplified_update_obj, context, called_from_callback=True)
         elif callback_data_full == CALLBACK_START_LUX_PACK:
-            await query.edit_message_reply_markup(reply_markup=None) # Remove inline button
+            await query.edit_message_reply_markup(reply_markup=None)
             await add_luxembourg_pack_command(simplified_update_obj, context, called_from_callback=True)
         elif callback_data_full == CALLBACK_START_JULIE_PACK:
-            await query.edit_message_reply_markup(reply_markup=None) # Remove inline button
+            await query.edit_message_reply_markup(reply_markup=None)
             await julie_pack_placeholder_command(simplified_update_obj, context, called_from_callback=True)
-        # --- END NEW ---
-
         elif callback_data_full.startswith(CALLBACK_CLUE_REQUEST):
-            # ... (Clue logic remains the same) ...
             word = callback_data_full[len(CALLBACK_CLUE_REQUEST):]; logger.info(f"Clue/Translate for '{word}'"); info_txt = get_clue_and_translations(word)
             await context.bot.send_message(chat_id=chat_id, text=f"💡 Info for \"{word}\":\n{info_txt}", reply_to_message_id=query.message.message_id)
         elif callback_data_full.startswith(CALLBACK_AI_EXPLAIN):
-            # ... (AI Explain logic remains the same) ...
             word_to_explain = callback_data_full[len(CALLBACK_AI_EXPLAIN):]; logger.info(f"AI Explanation for '{word_to_explain}'"); await context.bot.send_chat_action(chat_id=chat_id, action="typing"); ai_explanation_text = await get_ai_explanation(word_to_explain)
             await context.bot.send_message(chat_id=chat_id, text=f"✨ AI for \"{word_to_explain}\":\n\n{ai_explanation_text}", reply_to_message_id=query.message.message_id, parse_mode='Markdown' )
         elif callback_data_full.startswith(CALLBACK_SORT_DICT):
-            # ... (Sort logic remains the same) ...
             sort_type_requested = callback_data_full[len(CALLBACK_SORT_DICT):]; logger.info(f"Sort dict type: {sort_type_requested}")
             sort_key_to_apply,reverse_sort_to_apply = None,False
             if sort_type_requested=="ease_asc": sort_key_to_apply=lambda item:(len(item[0]),count_vowels(item[0])); reverse_sort_to_apply=False
             elif sort_type_requested=="ease_desc": sort_key_to_apply=lambda item:(len(item[0]),count_vowels(item[0])); reverse_sort_to_apply=True
             elif sort_type_requested=="default": sort_key_to_apply=lambda item:item[0].lower(); reverse_sort_to_apply=False
             else: logger.warning(f"Unrec sort type '{sort_type_requested}'"); sort_key_to_apply=lambda item:item[0].lower(); reverse_sort_to_apply=False; sort_type_requested="default"
+            # Pass the original update from the callback for show_dictionary_command_wrapper
             await show_dictionary_command_wrapper(update, context, page_number=1, sort_key_func=sort_key_to_apply, sort_reverse=reverse_sort_to_apply, sort_type_str=sort_type_requested)
         elif callback_data_full.startswith(CALLBACK_DICT_PAGE_NEXT) or callback_data_full.startswith(CALLBACK_DICT_PAGE_PREV):
-            # ... (Pagination logic remains the same) ...
             if callback_data_full.startswith(CALLBACK_DICT_PAGE_NEXT): requested_page = int(callback_data_full[len(CALLBACK_DICT_PAGE_NEXT):])
             else: requested_page = int(callback_data_full[len(CALLBACK_DICT_PAGE_PREV):])
             logger.info(f"Dictionary pagination requested. Requested page: {requested_page}")
+            # Pass the original update from the callback for show_dictionary_command_wrapper
             await show_dictionary_command_wrapper(update, context, page_number=requested_page)
         else: await query.edit_message_text("😕 Unknown action.", reply_markup=None)
     except Exception as e:
         logger.error(f"Error in button_callback_handler for callback data '{callback_data_full}': {e}", exc_info=True)
         try: await query.edit_message_text("😕 An error occurred processing your request.", reply_markup=None)
         except Exception as inner_e: logger.error(f"Could not edit msg on error: {inner_e}")
-# --- END MODIFIED ---
-
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.error(f"Update {update} caused error {context.error}", exc_info=context.error)
@@ -794,38 +723,23 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 def main() -> None:
     logger.info(f"Starting bot. Token: {BOT_TOKEN[:8]}...{BOT_TOKEN[-4:] if len(BOT_TOKEN)>12 else ''}")
     application = Application.builder().token(BOT_TOKEN).build()
-
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(MessageHandler(
         filters.TEXT & filters.Regex(f'^{re.escape(LEARNING_DICT_BUTTON_TEXT)}$'),
         lambda u,c: show_dictionary_command_wrapper(u,c,page_number=1, sort_key_func=lambda i_tuple:(i_tuple[0].lower() if isinstance(i_tuple[0], str) else i_tuple[0]),sort_reverse=False,sort_type_str="default")
     ))
-    
-    # --- NEW: Handler for the main pack button ---
     application.add_handler(MessageHandler(filters.TEXT & filters.Regex(f'^{re.escape(SHOW_VOCABULARY_PACKS_BUTTON_TEXT)}$'), show_vocabulary_packs_command))
-    # --- END NEW ---
-    
-    # The individual pack buttons are now removed from ReplyKeyboard, so direct MessageHandlers for them are no longer needed.
-    # The logic is now triggered via callbacks from `show_vocabulary_packs_command`.
-    # If you still want to be able to trigger them via text (e.g., for testing), you can keep these handlers.
-    # For this request, I'll assume they are only triggered via the new inline buttons.
-    # application.add_handler(MessageHandler(filters.TEXT & filters.Regex(f'^{re.escape(_B2_PACK_BUTTON_TEXT_INTERNAL)}$'), add_curated_words_command))
-    # application.add_handler(MessageHandler(filters.TEXT & filters.Regex(f'^{re.escape(_LUXEMBOURG_PACK_BUTTON_TEXT_INTERNAL)}$'), add_luxembourg_pack_command))
-    # application.add_handler(MessageHandler(filters.TEXT & filters.Regex(f'^{re.escape(_JULIE_PACK_BUTTON_TEXT_INTERNAL)}$'), julie_pack_placeholder_command))
-
     application.add_handler(MessageHandler(filters.TEXT & filters.Regex(f'^{re.escape(RANDOM_WORD_BUTTON_TEXT)}$'), random_word_command))
     application.add_handler(MessageHandler(filters.TEXT & filters.Regex(f'^{re.escape(RUN_QUIZ_BUTTON_TEXT)}$'), run_quiz_placeholder_command))
-    
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND &
         ~filters.Regex(f'^{re.escape(LEARNING_DICT_BUTTON_TEXT)}$') &
-        ~filters.Regex(f'^{re.escape(SHOW_VOCABULARY_PACKS_BUTTON_TEXT)}$') & # Exclude new main pack button
+        ~filters.Regex(f'^{re.escape(SHOW_VOCABULARY_PACKS_BUTTON_TEXT)}$') &
         ~filters.Regex(f'^{re.escape(RANDOM_WORD_BUTTON_TEXT)}$') &
         ~filters.Regex(f'^{re.escape(RUN_QUIZ_BUTTON_TEXT)}$'),
         handle_user_message_for_scheduling))
     application.add_handler(CallbackQueryHandler(button_callback_handler))
     application.add_error_handler(error_handler)
-
     logger.info("Bot polling started...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
     logger.info("Bot stopped.")
