@@ -42,7 +42,7 @@ try:
 except ImportError: OPENAI_AVAILABLE = False; _initial_logger.warning("OpenAI lib not found. AI disabled. `pip install openai`")
 
 # --- Configuration ---
-BOT_TOKEN = "Telegram token here" # YOUR TOKEN
+BOT_TOKEN = "Telegram bot token only here" # YOUR TOKEN
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO, force=True)
 logger = logging.getLogger(__name__)
@@ -87,13 +87,20 @@ CALLBACK_DICT_PAGE_PREV = "dict_pg_p:"
 CALLBACK_START_B2_PACK = "start_b2_pack"
 CALLBACK_START_LUX_PACK = "start_lux_pack"
 CALLBACK_START_JULIE_PACK = "start_julie_pack"
-# --- NEW: Sergei Pack Callback ---
 CALLBACK_START_SERGEI_PACK = "start_sergei_pack"
-# --- NEW: Terminate & Export Callbacks ---
 CALLBACK_TERMINATE_VOCAB_REQUEST = "term_req"
 CALLBACK_TERMINATE_VOCAB_CONFIRM = "term_conf"
 CALLBACK_TERMINATE_VOCAB_CANCEL = "term_can"
 CALLBACK_EXPORT_VOCAB = "export_vocab"
+CALLBACK_DESC_B2_PACK = "desc_b2"
+CALLBACK_DESC_LUX_PACK = "desc_lux"
+CALLBACK_DESC_JULIE_PACK = "desc_julie"
+CALLBACK_DESC_SERGEI_PACK = "desc_sergei"
+CALLBACK_INTENSITY_SETTINGS = "intensity_set"
+CALLBACK_DECREASE_INTENSITY = "decrease_inten"
+CALLBACK_DECREASE_INTENSITY_CONFIRM = "dec_int_conf:" # Added colon for potential value
+CALLBACK_DECREASE_INTENSITY_CANCEL = "dec_int_can"
+
 
 # --- Reply Keyboard Button Texts ---
 LEARNING_DICT_BUTTON_TEXT = "📚 Learning Dictionary"
@@ -101,11 +108,9 @@ SHOW_VOCABULARY_PACKS_BUTTON_TEXT = "🎁 Pre-defined Vocabulary Packs"
 RANDOM_WORD_BUTTON_TEXT = "🎲 Random Word"
 RUN_QUIZ_BUTTON_TEXT = "📝 Run Quiz"
 
-# --- For internal reference for pack details ---
 _B2_PACK_BUTTON_TEXT_INTERNAL = "➕ Pre-defined Vocabulary Pack (B2+ | 1 USD)"
 _JULIE_PACK_BUTTON_TEXT_INTERNAL = "🎓 Julie Stolyarchuk's Pack"
 _LUXEMBOURG_PACK_BUTTON_TEXT_INTERNAL = "🇱🇺 20 Luxembourg Phrases"
-# --- NEW: Sergei Pack internal text ---
 _SERGEI_PACK_BUTTON_TEXT_INTERNAL = "🧑‍🏫 @sergeitheteacher's New Pack"
 
 
@@ -119,20 +124,15 @@ REPLY_KEYBOARD = ReplyKeyboardMarkup(
 )
 
 # --- Constants for Pack & Dictionary Display ---
-# B2+ Pack
 USER_PACK_DATA_KEY = "curated_pack_data_v3"
 PACK_SCHEDULER_JOB_NAME_PREFIX = "pack_scheduler_"
-# Luxembourg Pack
 USER_LUX_PACK_DATA_KEY = "lux_pack_data_v1"
 LUX_PACK_SCHEDULER_JOB_NAME_PREFIX = "lux_pack_scheduler_"
-# Julie's Pack (placeholder constants)
 USER_JULIE_PACK_DATA_KEY = "julie_pack_data_v1"
 JULIE_PACK_SCHEDULER_JOB_NAME_PREFIX = "julie_pack_scheduler_"
-# --- NEW: Sergei Pack Constants ---
 USER_SERGEI_PACK_DATA_KEY = "sergei_pack_data_v1"
 SERGEI_PACK_SCHEDULER_JOB_NAME_PREFIX = "sergei_pack_scheduler_"
 
-# List of all user-specific pack data keys for easy iteration (e.g., for termination)
 ALL_USER_PACK_DATA_KEYS = [
     USER_PACK_DATA_KEY,
     USER_LUX_PACK_DATA_KEY,
@@ -143,6 +143,35 @@ ALL_USER_PACK_DATA_KEYS = [
 MAX_PACK_WORDS_PER_DAY = 5
 MIN_DELAY_BETWEEN_PACK_WORDS_SECONDS = 3600
 WORDS_PER_PAGE = 25
+
+# --- Pack Descriptions ---
+PACK_DESCRIPTIONS = {
+    "julie": "This specialized vocabulary pack is curated by Julie Stolyarchuk, tailored to complement her teaching methods and help her students achieve their learning goals more effectively. It focuses on key terms and concepts relevant to her program.",
+    "sergei": "Designed by @sergeitheteacher, this upcoming pack aims to provide students with targeted vocabulary to enhance their learning experience and master specific linguistic areas.",
+    "b2plus": "This pack focuses on 79 essential English words frequently encountered at the B2+ CEFR level. Mastering these will significantly boost your comprehension and fluency for intermediate to upper-intermediate contexts. It includes a mix of academic, professional, and general vocabulary to broaden your lexical range.",
+    "luxembourg": "Kickstart your Luxembourgish journey with these 20 fundamental phrases, perfect for A1-A2 learners. These common expressions cover greetings, basic questions, and polite interactions, providing a practical foundation for everyday conversations in Luxembourg."
+}
+GENERIC_NEXT_PACK_NOTE = "\n\nFuture vocabulary packs aim to offer even more comprehensive learning material, building upon the foundations established by current selections."
+
+# --- Learning Intensity ---
+INTENSITY_LEVELS = [ # Based on actual reminders scheduled for *today*
+    (0, " отдыхайте сегодня", "😴"), # 0 reminders today
+    (1, "Very Easy", "🧘"),
+    (2, "Easy", "😌"),
+    (3, "Medium", "👍"),
+    (4, "Hard", "🔥"),
+    (10, "Very Hard", "🤯"), # 5-10
+    (float('inf'), "Extreme", "🚀") # 11+
+]
+USER_INTENSITY_MODIFIER_KEY = "user_pack_intensity_modifier" # Default 1.0 (normal speed for new packs)
+
+def get_learning_intensity(daily_reminders_count: int) -> tuple[str, str]:
+    for limit, name, emoji in INTENSITY_LEVELS:
+        if daily_reminders_count <= limit:
+            return name, emoji
+    # This line should ideally not be reached if the last limit is float('inf')
+    return INTENSITY_LEVELS[-1][1], INTENSITY_LEVELS[-1][2]
+
 
 # --- Helper Functions ---
 def count_vowels(text: str) -> int:
@@ -184,10 +213,85 @@ async def get_ai_explanation(word_or_phrase:str)->str:
         r=c.choices[0].message.content; return r.strip() if r else "AI no explanation."
     except Exception as e: logger.error(f"OpenAI Err:'{w}':{e}",exc_info=True); return "AI error."
 
+# --- NEW HELPER: Calculate Projected Pack Completion Date ---
+def calculate_projected_pack_completion_date(
+    user_specific_data: dict,
+    job_queue: JobQueue, 
+    chat_id: int,
+    current_intensity_modifier: float = 1.0, # Current modifier
+    new_intensity_modifier: float = None # If calculating for a new modifier
+) -> datetime.date | None:
+    
+    latest_date_obj = datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)
+
+    # 1. Find the latest next_run_time of any existing job for the user
+    if job_queue:
+        for job in job_queue.jobs():
+            if job.chat_id == chat_id and job.next_run_time and not job.removed:
+                current_job_time = job.next_run_time
+                if current_job_time.tzinfo is None: # Ensure offset-aware
+                    current_job_time = current_job_time.replace(tzinfo=datetime.timezone.utc)
+                else:
+                    current_job_time = current_job_time.astimezone(datetime.timezone.utc)
+                if current_job_time > latest_date_obj:
+                    latest_date_obj = current_job_time
+    
+    # Effective start date for simulating new pack word activations
+    sim_start_date = max(datetime.date.today(), latest_date_obj.date())
+
+    # Determine which modifier to use for MAX_PACK_WORDS_PER_DAY calculation
+    modifier_to_use = new_intensity_modifier if new_intensity_modifier is not None else current_intensity_modifier
+    
+    effective_max_daily = MAX_PACK_WORDS_PER_DAY
+    if modifier_to_use > 0:
+        effective_max_daily = max(1, round(MAX_PACK_WORDS_PER_DAY / modifier_to_use))
+    
+    # Aggregate all pending words from all active packs
+    all_pending_words_from_active_packs = []
+    pack_keys_to_check = [USER_PACK_DATA_KEY, USER_LUX_PACK_DATA_KEY] # Add other future pack keys here
+
+    for pack_key in pack_keys_to_check:
+        pack_info = user_specific_data.get(pack_key)
+        if pack_info and pack_info.get('status') == 'in_progress' and 'pack_words_status' in pack_info:
+            for item_status in pack_info['pack_words_status']:
+                if item_status.get('status') == 'pending':
+                    all_pending_words_from_active_packs.append(item_status['word'])
+    
+    if not all_pending_words_from_active_packs: # No pending words from packs
+        if latest_date_obj == datetime.datetime.min.replace(tzinfo=datetime.timezone.utc): # And no active jobs
+            return datetime.date.today() # Nothing scheduled, "completion" is today
+        return latest_date_obj.date() # Completion is tied to last active job
+
+    # Calculate how many days it will take to activate all remaining pending words
+    days_to_activate_remaining = math.ceil(len(all_pending_words_from_active_packs) / effective_max_daily)
+    
+    # Date when the last of these pending words gets activated
+    last_activation_date = sim_start_date
+    # Simulate day-by-day activation
+    # This is a rough estimate; a precise one would need to track daily counts across loop
+    for i in range(days_to_activate_remaining):
+        last_activation_date += datetime.timedelta(days=1) 
+        # A more precise simulation would check if a weekend or non-learning day, if that logic is ever added.
+
+    # Add the longest reminder interval to the last activation date
+    if REMINDER_INTERVALS_SECONDS:
+        max_reminder_duration_seconds = REMINDER_INTERVALS_SECONDS[-1]
+        projected_completion_datetime = datetime.datetime.combine(last_activation_date, datetime.time.min, tzinfo=datetime.timezone.utc) + \
+                                       datetime.timedelta(seconds=max_reminder_duration_seconds)
+        final_projected_date = projected_completion_datetime.date()
+    else:
+        final_projected_date = last_activation_date
+        
+    # The overall latest date is either the end of current jobs or end of future pack words
+    return max(final_projected_date, latest_date_obj.date())
+
+
 def generate_dictionary_text(
     chat_id: int,
     user_specific_data: dict,
     job_queue: JobQueue,
+    intensity_name: str, 
+    intensity_emoji: str, 
     page_number: int = 1, items_per_page: int = WORDS_PER_PAGE,
     sort_key_func=None, sort_reverse=False
 ) -> tuple[str, list, int, int]:
@@ -235,10 +339,7 @@ def generate_dictionary_text(
                                            {'is_pack_word': True, 'pack_source': 'luxembourg', 'learning_start_date': est_start_date, 'message_text':word},
                                            'pending_pack_luxembourg', est_start_date))
 
-    # Note: Julie's and Sergei's packs are placeholders, so they won't have pending words from user_data yet.
-    # If they become active, similar blocks to fetch their pending words would be needed here.
-
-    if not display_items_list: return "Your learning dictionary is empty. Add some items or start a pack! 🚀", [], 1, 1
+    if not display_items_list: return f"Your learning dictionary is empty. Add some items or start a pack! 🚀\n\nCurrent Intensity: {intensity_emoji} {intensity_name}", [], 1, 1
 
     if sort_key_func:
         try: display_items_list.sort(key=sort_key_func, reverse=sort_reverse)
@@ -266,6 +367,7 @@ def generate_dictionary_text(
             paginated_items = display_items_list[start_index:end_index]
 
     response_text = f"📚 **Your Learning Dictionary** (Page {current_page_for_display}/{total_pages_for_display})\n"
+    response_text += f"⚡ Intensity: {intensity_emoji} {intensity_name}\n"
     response_text += "------------------------------------\n" 
 
     if not paginated_items and total_items > 0:
@@ -278,30 +380,19 @@ def generate_dictionary_text(
         is_pack_word_flag = job_data_item.get('is_pack_word', False)
         pack_source_from_job = job_data_item.get('pack_source')
         actual_learning_start_date_str = job_data_item.get('learning_start_date')
-
-        status_emoji = ""
-        pack_emoji = ""
-        status_text = ""
-
+        status_emoji = ""; pack_emoji = ""; status_text = ""
         if item_status_str.startswith('pending_pack_'):
-            status_emoji = "⏳"
-            status_text = "Pending"
+            status_emoji = "⏳"; status_text = "Pending"
             if pack_source_from_job == 'b2plus': pack_emoji = "🇬🇧"
             elif pack_source_from_job == 'luxembourg': pack_emoji = "🇱🇺"
         elif item_status_str.startswith('active_pack_'):
-            status_emoji = "🟢"
-            status_text = "Active"
+            status_emoji = "🟢"; status_text = "Active"
             if pack_source_from_job == 'b2plus': pack_emoji = "🇬🇧"
             elif pack_source_from_job == 'luxembourg': pack_emoji = "🇱🇺"
         elif item_status_str.startswith('active_user'):
-            status_emoji = "✅"
-            pack_emoji = "👤" 
-            status_text = "Active"
-        else: 
-            status_text = item_status_str.replace("_", " ").title()
-
-        if item_status_str.startswith('pending_pack_') and estimated_start_date:
-            time_info_str = f"Starts: {estimated_start_date}"
+            status_emoji = "✅"; pack_emoji = "👤"; status_text = "Active"
+        else: status_text = item_status_str.replace("_", " ").title()
+        if item_status_str.startswith('pending_pack_') and estimated_start_date: time_info_str = f"Starts: {estimated_start_date}"
         elif item_status_str.startswith('active_') and next_run_dt:
             show_actual_learning_start_date = False
             if is_pack_word_flag and actual_learning_start_date_str and REMINDER_INTERVALS_SECONDS:
@@ -312,29 +403,22 @@ def generate_dictionary_text(
                     if current_interval_idx == 0 and len(REMINDER_INTERVALS_SECONDS) > 0: 
                         expected_first_rem_time = learning_start_dt_obj + datetime.timedelta(seconds=REMINDER_INTERVALS_SECONDS[0])
                         if abs((next_run_dt - expected_first_rem_time).total_seconds()) < 60*10 and next_run_dt > now_datetime.astimezone(tz_info):
-                            show_actual_learning_start_date = True
-                            time_info_str = f"Active since: {actual_learning_start_date_str}"
+                            show_actual_learning_start_date = True; time_info_str = f"Active since: {actual_learning_start_date_str}"
                 except ValueError: logger.error(f"Parse err: {actual_learning_start_date_str} for {msg_txt}")
-            
             if not show_actual_learning_start_date:
                 diff = next_run_dt - now_datetime.astimezone(next_run_dt.tzinfo or datetime.timezone.utc)
                 if diff.total_seconds() > 0:
-                    days = diff.days
-                    hours, remainder = divmod(diff.seconds, 3600)
-                    minutes, _ = divmod(remainder, 60)
+                    days = diff.days; hours, remainder = divmod(diff.seconds, 3600); minutes, _ = divmod(remainder, 60)
                     if days > 0: time_info_str = f"Next in: ~{days}d {hours}h"
                     elif hours > 0: time_info_str = f"Next in: ~{hours}h {minutes}m"
                     elif minutes > 0: time_info_str = f"Next in: ~{minutes}m"
                     else: time_info_str = "Next in: <1 min" 
                 else: time_info_str = "Next: Soon/Past"
-        elif item_status_str.startswith('active_'): 
-            time_info_str = "Next: N/A"
-        
+        elif item_status_str.startswith('active_'): time_info_str = "Next: N/A"
         escaped_msg_txt = html.escape(msg_txt)
         response_text += f"{status_emoji} **{escaped_msg_txt}** {pack_emoji}\n"
         response_text += f"   `Reminders: {reminders_left} | {status_text} | {time_info_str}`\n"
         response_text += "------------------------------------\n" 
-
     response_text += "\n_These are your learning items._"
     return response_text, display_items_list, current_page_for_display, total_pages_for_display
 
@@ -373,7 +457,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     packs_info_text = (
         f"- **`{SHOW_VOCABULARY_PACKS_BUTTON_TEXT}`:** Explore available vocabulary packs:\n"
         "  - **Julie's Pack:** (Coming Soon) Developed by Julie for her students.\n"
-        "  - **@sergeitheteacher's Pack:** (Coming Soon) Created by Sergei for his students.\n" # NEW
+        "  - **@sergeitheteacher's Pack:** (Coming Soon) Created by Sergei for his students.\n"
         "  - **B2+ English Pack:** (1 USD) 79 most frequently used English words for B2+.\n"
         "  - **Luxembourg Phrases Pack:** (Free) 20 popular Luxembourgish phrases for A2.\n"
     )
@@ -381,6 +465,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         f"- **`{RANDOM_WORD_BUTTON_TEXT}`:** Get a random word from your active learning list.\n"
         f"- **`{RUN_QUIZ_BUTTON_TEXT}`:** (Coming Soon!) Test your knowledge.\n"
     )
+    intensity_help = "- **Intensity Setting:** (In `Learning Dictionary`) Adjust how many reminders you get. Lower intensity is often better for forming habits.\n"
     help_text = (
         "Unlock Vocabulary Growth!\n\n"
         "This bot uses **Spaced Repetition (SRS)** to help you *remember* words & phrases. "
@@ -390,8 +475,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "2. **Reminders:** I'll schedule reminders (e.g., 1 min, 1 day, 2 days...). \n"
         "3. **Recall:** Actively recall meaning on reminder.\n\n"
         "**Features:**\n"
-        f"- **`{LEARNING_DICT_BUTTON_TEXT}`:** View paginated list of active AND planned items. Also includes options to Terminate or Export your vocabulary.\n"
+        f"- **`{LEARNING_DICT_BUTTON_TEXT}`:** View paginated list of active AND planned items. Also includes options to Terminate, Export, or check Intensity.\n"
         f"{packs_info_text}"
+        f"{intensity_help}" 
         f"{random_quiz_text}"
         "- **Delete Items:** '🗑️ Delete' on reminders (for active items).\n"
         "- **Clue & Translate:** '💡 Clue/Translate' for phonetic hint & translations.\n"
@@ -409,6 +495,18 @@ async def show_dictionary_command_wrapper(update: Update, context: ContextTypes.
     chat_id = update.effective_chat.id
     chat_specific_settings = context.chat_data
     user_specific_data = context.user_data
+    
+    daily_reminders_count = 0
+    if context.job_queue:
+        today = datetime.date.today()
+        for job in context.job_queue.jobs():
+            if job.chat_id == chat_id and job.next_run_time:
+                job_next_run_date = job.next_run_time.astimezone(datetime.timezone.utc).date()
+                if job_next_run_date == today:
+                    daily_reminders_count += 1
+    intensity_name, intensity_emoji = get_learning_intensity(daily_reminders_count)
+    logger.info(f"Chat {chat_id}: Daily reminders = {daily_reminders_count}, Intensity = {intensity_name} {intensity_emoji}")
+
     if sort_key_func is not None:
         chat_specific_settings['dict_sort_key_name'] = sort_type_str
         chat_specific_settings['dict_sort_reverse'] = sort_reverse
@@ -422,12 +520,11 @@ async def show_dictionary_command_wrapper(update: Update, context: ContextTypes.
     
     dictionary_text, all_items_for_export, current_page_displayed, total_pages = generate_dictionary_text(
         chat_id, user_specific_data, context.job_queue,
+        intensity_name, intensity_emoji, 
         page_number=page_number, items_per_page=WORDS_PER_PAGE,
         sort_key_func=sort_key_func, sort_reverse=sort_reverse
     )
-    # Store all items for potential export (this is already the full list from generate_dictionary_text)
     chat_specific_settings['all_dict_items_for_export'] = all_items_for_export
-
 
     next_sort_type_for_button,button_text = "ease_desc","🔃 Sort (Ease)"
     if sort_type_str == "ease_asc": button_text = "🔃 Sort (Ease ↓)"; next_sort_type_for_button = "ease_desc"
@@ -435,20 +532,18 @@ async def show_dictionary_command_wrapper(update: Update, context: ContextTypes.
     elif sort_type_str == "default": next_sort_type_for_button = "ease_asc"
     
     inline_keyboard_buttons_row1 = [
-        InlineKeyboardButton(button_text, callback_data=f"{CALLBACK_SORT_DICT}{next_sort_type_for_button}")
+        InlineKeyboardButton(button_text, callback_data=f"{CALLBACK_SORT_DICT}{next_sort_type_for_button}"),
+        InlineKeyboardButton("⚙️ Intensity", callback_data=CALLBACK_INTENSITY_SETTINGS) 
     ]
-    # --- NEW: Add Terminate and Export buttons to a new row ---
     inline_keyboard_buttons_row_utils = [
         InlineKeyboardButton("🗑️ Terminate All", callback_data=CALLBACK_TERMINATE_VOCAB_REQUEST),
         InlineKeyboardButton("📤 Export Vocabulary", callback_data=CALLBACK_EXPORT_VOCAB)
     ]
-    # --- END NEW ---
-
     inline_keyboard_buttons_row_pagination = []
     if current_page_displayed > 1: inline_keyboard_buttons_row_pagination.append(InlineKeyboardButton("◀️ Previous", callback_data=f"{CALLBACK_DICT_PAGE_PREV}{current_page_displayed-1}"))
     if current_page_displayed < total_pages: inline_keyboard_buttons_row_pagination.append(InlineKeyboardButton("Next ▶️", callback_data=f"{CALLBACK_DICT_PAGE_NEXT}{current_page_displayed+1}"))
     
-    full_inline_keyboard = [inline_keyboard_buttons_row1, inline_keyboard_buttons_row_utils] # Add new utils row
+    full_inline_keyboard = [inline_keyboard_buttons_row1, inline_keyboard_buttons_row_utils] 
     if inline_keyboard_buttons_row_pagination: full_inline_keyboard.append(inline_keyboard_buttons_row_pagination)
     
     keyboard = InlineKeyboardMarkup(full_inline_keyboard)
@@ -460,11 +555,10 @@ async def show_dictionary_command_wrapper(update: Update, context: ContextTypes.
         except Exception as e:
             logger.warning(f"Edit dict err (msg_id {update.callback_query.message.message_id}):{e}")
             if "Message is not modified" not in str(e): 
-                # If edit fails and not because it's unmodified, send as new message (though this might be odd UX after inline button)
                 await context.bot.send_message(chat_id=chat_id, text=message_to_send, reply_markup=keyboard, parse_mode='Markdown')
-    else: # If called by command (e.g. /start then press Learning Dictionary)
-        await update.message.reply_text(message_to_send, reply_markup=REPLY_KEYBOARD, parse_mode='Markdown') # Main dictionary list
-        await update.message.reply_text("Dictionary Options:", reply_markup=keyboard) # Inline options separately
+    else: 
+        await update.message.reply_text(message_to_send, reply_markup=REPLY_KEYBOARD, parse_mode='Markdown') 
+        await update.message.reply_text("Dictionary Options:", reply_markup=keyboard) 
         
     chat_specific_settings['dict_current_page'] = current_page_displayed
     logger.info(f"Showed dict chat {chat_id}, page {current_page_displayed}/{total_pages}, sort: {sort_type_str}")
@@ -485,7 +579,6 @@ async def schedule_reminders_for_word(
             user_data_for_this_user = context.user_data; target_pack_data_key = None
             if pack_source_id == 'b2plus': target_pack_data_key = USER_PACK_DATA_KEY
             elif pack_source_id == 'luxembourg': target_pack_data_key = USER_LUX_PACK_DATA_KEY
-            # Add other pack keys here if they become non-placeholders
             if target_pack_data_key and target_pack_data_key in user_data_for_this_user:
                 pack_status_list = user_data_for_this_user.get(target_pack_data_key, {}).get('pack_words_status', [])
                 for item in pack_status_list:
@@ -525,11 +618,21 @@ async def process_curated_pack_for_user(context: ContextTypes.DEFAULT_TYPE) -> N
     user_data_for_chat = context.user_data
     if USER_PACK_DATA_KEY not in user_data_for_chat or 'pack_words_status' not in user_data_for_chat[USER_PACK_DATA_KEY]:
         logger.warning(f"B2+ Pack scheduler for user {user_id} (chat {chat_id}) missing essential pack data. Removing job."); job.schedule_removal(); return
+    
+    user_intensity_modifier = user_data_for_chat.get(USER_INTENSITY_MODIFIER_KEY, 1.0)
+    effective_max_pack_words_today = MAX_PACK_WORDS_PER_DAY
+    if user_intensity_modifier > 0:
+        effective_max_pack_words_today = max(1, round(MAX_PACK_WORDS_PER_DAY / user_intensity_modifier))
+
     pack_data = user_data_for_chat[USER_PACK_DATA_KEY]
     pack_words_status_list = pack_data.get('pack_words_status', [])
     today_str = datetime.datetime.now().strftime("%Y-%m-%d")
     if pack_data.get("last_scheduled_date") != today_str: pack_data["words_scheduled_today"] = 0; pack_data["last_scheduled_date"] = today_str
-    if pack_data.get("words_scheduled_today", 0) >= MAX_PACK_WORDS_PER_DAY: logger.info(f"User {user_id} (chat {chat_id}): Max B2+ pack words for today."); return
+    
+    if pack_data.get("words_scheduled_today", 0) >= effective_max_pack_words_today: 
+        logger.info(f"User {user_id} (chat {chat_id}): Max B2+ pack words ({effective_max_pack_words_today} effective) for today due to intensity modifier {user_intensity_modifier}.")
+        return
+        
     current_time = datetime.datetime.now().timestamp()
     if pack_data.get("last_pack_word_scheduled_time", 0.0) > 0.0 and \
        (current_time - pack_data["last_pack_word_scheduled_time"]) < MIN_DELAY_BETWEEN_PACK_WORDS_SECONDS:
@@ -570,18 +673,27 @@ async def add_curated_words_command(update: Update, context: ContextTypes.DEFAUL
         elif pack_data.get('status')=='in_progress' or any(w.get('status')=='pending' for w in pack_data.get('pack_words_status',[])):
             await context.bot.send_message(chat_id, "B2+ Pack already being added.", reply_markup=REPLY_KEYBOARD if not called_from_callback else None)
             return
+    
+    user_intensity_modifier = user_data_for_chat.get(USER_INTENSITY_MODIFIER_KEY, 1.0)
+    effective_max_daily_for_new_pack = MAX_PACK_WORDS_PER_DAY
+    if user_intensity_modifier > 0:
+        effective_max_daily_for_new_pack = max(1, round(MAX_PACK_WORDS_PER_DAY / user_intensity_modifier))
+
     pack_words_status_list = []
     current_est_date = datetime.date.today(); words_for_curr_date = 0
     for i,word in enumerate(CURATED_VOCABULARY_PACK):
-        if words_for_curr_date >= MAX_PACK_WORDS_PER_DAY: current_est_date+=datetime.timedelta(days=1); words_for_curr_date=0
+        if words_for_curr_date >= effective_max_daily_for_new_pack: 
+            current_est_date+=datetime.timedelta(days=1); words_for_curr_date=0
         pack_words_status_list.append({'word':word,'status':'pending','estimated_start_date':current_est_date.strftime("%Y-%m-%d"),'actual_start_date':None})
         words_for_curr_date+=1
     user_data_for_chat[USER_PACK_DATA_KEY] = {"pack_words_status":pack_words_status_list,"words_scheduled_today":0,"last_scheduled_date":"","last_pack_word_scheduled_time":0.0,"status":"in_progress"}
     job_name = f"{PACK_SCHEDULER_JOB_NAME_PREFIX}{chat_id}"
     for job_item in context.job_queue.get_jobs_by_name(job_name): job_item.schedule_removal()
     context.job_queue.run_repeating(process_curated_pack_for_user, interval=MIN_DELAY_BETWEEN_PACK_WORDS_SECONDS/2, first=5, chat_id=chat_id, user_id=user_id, name=job_name)
-    total_words, days_intro = len(CURATED_VOCABULARY_PACK), math.ceil(len(CURATED_VOCABULARY_PACK)/MAX_PACK_WORDS_PER_DAY)
-    await context.bot.send_message(chat_id, f"Great! B2+ Pack ({total_words} words) added. Up to {MAX_PACK_WORDS_PER_DAY} daily. ~{days_intro} days for all to activate. Check '📚 Learning Dictionary'!", reply_markup=REPLY_KEYBOARD if not called_from_callback else None)
+    
+    total_words = len(CURATED_VOCABULARY_PACK)
+    days_intro = math.ceil(total_words / effective_max_daily_for_new_pack)
+    await context.bot.send_message(chat_id, f"Great! B2+ Pack ({total_words} words) added. Up to {effective_max_daily_for_new_pack} will be activated daily based on your intensity setting. ~{days_intro} days for all to activate. Check '📚 Learning Dictionary'!", reply_markup=REPLY_KEYBOARD if not called_from_callback else None)
     logger.info(f"B2+ Curated pack for user {user_id} (chat {chat_id}). Job '{job_name}' on.")
     
     original_job = getattr(context, 'job', None)
@@ -591,10 +703,10 @@ async def add_curated_words_command(update: Update, context: ContextTypes.DEFAUL
     context.job = MinimalJobForInitialRun(chat_id, user_id)
 
     logger.info(f"Initial B2+ pack processing for user {user_id} (chat {chat_id})...")
-    for _ in range(MAX_PACK_WORDS_PER_DAY+1):
+    for _ in range(effective_max_daily_for_new_pack + 1): # Process up to the effective daily limit
         if USER_PACK_DATA_KEY not in context.user_data or context.user_data[USER_PACK_DATA_KEY].get('status')=='completed':break
         await process_curated_pack_for_user(context)
-        if context.user_data.get(USER_PACK_DATA_KEY,{}).get("words_scheduled_today",0)>=MAX_PACK_WORDS_PER_DAY:break
+        if context.user_data.get(USER_PACK_DATA_KEY,{}).get("words_scheduled_today",0)>=effective_max_daily_for_new_pack:break
     context.job = original_job
     logger.info(f"Initial B2+ pack proc for user {user_id} (chat {chat_id}) done.")
 
@@ -603,11 +715,21 @@ async def process_luxembourg_pack_for_user(context: ContextTypes.DEFAULT_TYPE) -
     user_data_for_chat = context.user_data
     if USER_LUX_PACK_DATA_KEY not in user_data_for_chat or 'pack_words_status' not in user_data_for_chat[USER_LUX_PACK_DATA_KEY]:
         logger.warning(f"Luxembourg Pack scheduler for user {user_id} (chat {chat_id}) missing essential pack data. Removing job."); job.schedule_removal(); return
+    
+    user_intensity_modifier = user_data_for_chat.get(USER_INTENSITY_MODIFIER_KEY, 1.0)
+    effective_max_pack_words_today = MAX_PACK_WORDS_PER_DAY
+    if user_intensity_modifier > 0:
+        effective_max_pack_words_today = max(1, round(MAX_PACK_WORDS_PER_DAY / user_intensity_modifier))
+
     pack_data = user_data_for_chat[USER_LUX_PACK_DATA_KEY]
     pack_words_status_list = pack_data.get('pack_words_status', [])
     today_str = datetime.datetime.now().strftime("%Y-%m-%d")
     if pack_data.get("last_scheduled_date") != today_str: pack_data["words_scheduled_today"] = 0; pack_data["last_scheduled_date"] = today_str
-    if pack_data.get("words_scheduled_today", 0) >= MAX_PACK_WORDS_PER_DAY: logger.info(f"User {user_id} (chat {chat_id}): Max Luxembourg pack items for today."); return
+    
+    if pack_data.get("words_scheduled_today", 0) >= effective_max_pack_words_today: 
+        logger.info(f"User {user_id} (chat {chat_id}): Max Luxembourg pack items ({effective_max_pack_words_today} effective) for today due to intensity modifier {user_intensity_modifier}.")
+        return
+        
     current_time = datetime.datetime.now().timestamp()
     if pack_data.get("last_pack_word_scheduled_time", 0.0) > 0.0 and \
        (current_time - pack_data["last_pack_word_scheduled_time"]) < MIN_DELAY_BETWEEN_PACK_WORDS_SECONDS:
@@ -648,19 +770,27 @@ async def add_luxembourg_pack_command(update: Update, context: ContextTypes.DEFA
         elif pack_data.get('status') == 'in_progress' or any(w.get('status') == 'pending' for w in pack_data.get('pack_words_status', [])):
             await context.bot.send_message(chat_id, "The Luxembourg Phrases pack is already being added.", reply_markup=REPLY_KEYBOARD if not called_from_callback else None)
             return
+
+    user_intensity_modifier = user_data_for_chat.get(USER_INTENSITY_MODIFIER_KEY, 1.0)
+    effective_max_daily_for_new_pack = MAX_PACK_WORDS_PER_DAY
+    if user_intensity_modifier > 0:
+        effective_max_daily_for_new_pack = max(1, round(MAX_PACK_WORDS_PER_DAY / user_intensity_modifier))
+
     pack_words_status_list = []
     current_est_date = datetime.date.today(); words_for_curr_date = 0
     for i, phrase in enumerate(CURATED_LUXEMBOURG_PACK):
-        if words_for_curr_date >= MAX_PACK_WORDS_PER_DAY: current_est_date += datetime.timedelta(days=1); words_for_curr_date = 0
+        if words_for_curr_date >= effective_max_daily_for_new_pack: 
+            current_est_date += datetime.timedelta(days=1); words_for_curr_date = 0
         pack_words_status_list.append({'word': phrase, 'status': 'pending', 'estimated_start_date': current_est_date.strftime("%Y-%m-%d"), 'actual_start_date': None})
         words_for_curr_date += 1
     user_data_for_chat[USER_LUX_PACK_DATA_KEY] = {"pack_words_status": pack_words_status_list, "words_scheduled_today": 0, "last_scheduled_date": "", "last_pack_word_scheduled_time": 0.0, "status": "in_progress"}
     job_name = f"{LUX_PACK_SCHEDULER_JOB_NAME_PREFIX}{chat_id}"
     for job_item in context.job_queue.get_jobs_by_name(job_name): job_item.schedule_removal()
     context.job_queue.run_repeating(process_luxembourg_pack_for_user, interval=MIN_DELAY_BETWEEN_PACK_WORDS_SECONDS / 2, first=5, chat_id=chat_id, user_id=user_id, name=job_name)
+    
     total_items = len(CURATED_LUXEMBOURG_PACK)
-    days_intro = math.ceil(total_items / MAX_PACK_WORDS_PER_DAY)
-    await context.bot.send_message(chat_id, f"Great! Luxembourg Phrases Pack ({total_items} items) added. Up to {MAX_PACK_WORDS_PER_DAY} daily. ~{days_intro} days for all items to activate. Check '📚 Learning Dictionary'!", reply_markup=REPLY_KEYBOARD if not called_from_callback else None)
+    days_intro = math.ceil(total_items / effective_max_daily_for_new_pack)
+    await context.bot.send_message(chat_id, f"Great! Luxembourg Phrases Pack ({total_items} items) added. Up to {effective_max_daily_for_new_pack} will be activated daily based on your intensity. ~{days_intro} days for all items to activate. Check '📚 Learning Dictionary'!", reply_markup=REPLY_KEYBOARD if not called_from_callback else None)
     logger.info(f"Luxembourg Phrases pack for user {user_id} (chat {chat_id}). Job '{job_name}' on.")
 
     original_job = getattr(context, 'job', None)
@@ -670,10 +800,10 @@ async def add_luxembourg_pack_command(update: Update, context: ContextTypes.DEFA
     context.job = MinimalJobForInitialRun(chat_id, user_id)
 
     logger.info(f"Initial Luxembourg pack processing for user {user_id} (chat {chat_id})...")
-    for _ in range(MAX_PACK_WORDS_PER_DAY + 1):
+    for _ in range(effective_max_daily_for_new_pack + 1): # Process up to the effective daily limit
         if USER_LUX_PACK_DATA_KEY not in context.user_data or context.user_data[USER_LUX_PACK_DATA_KEY].get('status') == 'completed': break
         await process_luxembourg_pack_for_user(context)
-        if context.user_data.get(USER_LUX_PACK_DATA_KEY, {}).get("words_scheduled_today", 0) >= MAX_PACK_WORDS_PER_DAY: break
+        if context.user_data.get(USER_LUX_PACK_DATA_KEY, {}).get("words_scheduled_today", 0) >= effective_max_daily_for_new_pack: break
     context.job = original_job
     logger.info(f"Initial Luxembourg pack proc for user {user_id} (chat {chat_id}) done.")
 
@@ -682,16 +812,29 @@ async def julie_pack_placeholder_command(update: Update, context: ContextTypes.D
     logger.info(f"User {chat_id} (user: {update.effective_user.id}) interacted with Julie's Pack option.")
     await context.bot.send_message(chat_id, "🌟 Julie Stolyarchuk's Pack is coming soon! Stay tuned.", reply_markup=REPLY_KEYBOARD if not called_from_callback else None)
 
-# --- NEW: Sergei Pack Placeholder Command ---
 async def sergei_pack_placeholder_command(update: Update, context: ContextTypes.DEFAULT_TYPE, called_from_callback: bool = False) -> None:
     chat_id = update.effective_chat.id
     logger.info(f"User {chat_id} (user: {update.effective_user.id}) interacted with @sergeitheteacher's Pack option.")
     await context.bot.send_message(chat_id, "🧑‍🏫 @sergeitheteacher's new pack will be available soon!", reply_markup=REPLY_KEYBOARD if not called_from_callback else None)
-# --- END NEW ---
 
 async def random_word_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id; user_specific_data = context.user_data
-    _, all_items_list, _, _ = generate_dictionary_text(chat_id, user_specific_data, context.job_queue, page_number=1, items_per_page=float('inf'))
+    
+    daily_reminders_count = 0 # Calculate for context if needed, or pass dummy
+    if context.job_queue:
+        today = datetime.date.today()
+        for job in context.job_queue.jobs():
+            if job.chat_id == chat_id and job.next_run_time:
+                job_next_run_date = job.next_run_time.astimezone(datetime.timezone.utc).date()
+                if job_next_run_date == today:
+                    daily_reminders_count += 1
+    intensity_name, intensity_emoji = get_learning_intensity(daily_reminders_count)
+
+    _, all_items_list, _, _ = generate_dictionary_text(
+        chat_id, user_specific_data, context.job_queue,
+        intensity_name, intensity_emoji, 
+        page_number=1, items_per_page=float('inf')
+    )
     active_words = [item[0] for item in all_items_list if item[4].startswith('active_')]
     unique_active_words = list(set(active_words))
     if unique_active_words:
@@ -713,23 +856,41 @@ async def show_vocabulary_packs_command(update: Update, context: ContextTypes.DE
     logger.info(f"User {user.id} in chat {chat_id} requested to see vocabulary packs.")
     await update.message.reply_text("Here are our pre-defined vocabulary packs:", reply_markup=REPLY_KEYBOARD)
     
-    julie_description = "🎓 **Julie Stolyarchuk's Pack**\nIt's a pack developed by Julie which helps her students run her program more efficiently.\n*Price: Coming Soon*"
-    julie_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Start Learning (Coming Soon)", callback_data=CALLBACK_START_JULIE_PACK)]])
-    await context.bot.send_message(chat_id=chat_id, text=julie_description, reply_markup=julie_keyboard, parse_mode='Markdown')
+    julie_description_short = "🎓 **Julie Stolyarchuk's Pack**\nIt's a pack developed by Julie which helps her students run her program more efficiently.\n*Price: Coming Soon*"
+    julie_keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("Start Learning (Soon)", callback_data=CALLBACK_START_JULIE_PACK),
+            InlineKeyboardButton("ℹ️ Description", callback_data=CALLBACK_DESC_JULIE_PACK)
+        ]
+    ])
+    await context.bot.send_message(chat_id=chat_id, text=julie_description_short, reply_markup=julie_keyboard, parse_mode='Markdown')
     
-    # --- NEW: Sergei Pack Display ---
-    sergei_description = "🧑‍🏫 **@sergeitheteacher's New Pack**\nCreated by Sergei for his students and will be available soon.\n*Price: Coming Soon*"
-    sergei_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Start Learning (Coming Soon)", callback_data=CALLBACK_START_SERGEI_PACK)]])
-    await context.bot.send_message(chat_id=chat_id, text=sergei_description, reply_markup=sergei_keyboard, parse_mode='Markdown')
-    # --- END NEW ---
+    sergei_description_short = "🧑‍🏫 **@sergeitheteacher's New Pack**\nCreated by Sergei for his students and will be available soon.\n*Price: Coming Soon*"
+    sergei_keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("Start Learning (Soon)", callback_data=CALLBACK_START_SERGEI_PACK),
+            InlineKeyboardButton("ℹ️ Description", callback_data=CALLBACK_DESC_SERGEI_PACK)
+        ]
+    ])
+    await context.bot.send_message(chat_id=chat_id, text=sergei_description_short, reply_markup=sergei_keyboard, parse_mode='Markdown')
 
-    b2_description = "🇬🇧 **B2+ English Pack**\n79 most frequently used English words for B2+ speakers.\n*Price: 1 USD*"
-    b2_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Start Learning B2+ Pack", callback_data=CALLBACK_START_B2_PACK)]])
-    await context.bot.send_message(chat_id=chat_id, text=b2_description, reply_markup=b2_keyboard, parse_mode='Markdown')
+    b2_description_short = "🇬🇧 **B2+ English Pack**\n79 most frequently used English words for B2+ speakers.\n*Price: 1 USD*"
+    b2_keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("Start Learning B2+ Pack", callback_data=CALLBACK_START_B2_PACK),
+            InlineKeyboardButton("ℹ️ Description", callback_data=CALLBACK_DESC_B2_PACK)
+        ]
+    ])
+    await context.bot.send_message(chat_id=chat_id, text=b2_description_short, reply_markup=b2_keyboard, parse_mode='Markdown')
     
-    lux_description = "🇱🇺 **Luxembourg Phrases Pack**\nThe most popular 20 phrases for A2 level.\n*Price: Free*"
-    lux_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Start Learning Luxembourg Pack", callback_data=CALLBACK_START_LUX_PACK)]])
-    await context.bot.send_message(chat_id=chat_id, text=lux_description, reply_markup=lux_keyboard, parse_mode='Markdown')
+    lux_description_short = "🇱🇺 **Luxembourg Phrases Pack**\nThe most popular 20 phrases for A2 level.\n*Price: Free*"
+    lux_keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("Start Learning Lux. Pack", callback_data=CALLBACK_START_LUX_PACK),
+            InlineKeyboardButton("ℹ️ Description", callback_data=CALLBACK_DESC_LUX_PACK)
+        ]
+    ])
+    await context.bot.send_message(chat_id=chat_id, text=lux_description_short, reply_markup=lux_keyboard, parse_mode='Markdown')
 
 async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query; await query.answer(); callback_data_full = query.data; chat_id = query.message.chat.id
@@ -757,7 +918,6 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             word_updated_in_pack = False; pack_name_updated = ""; target_pack_data_key = None
             if pack_source_confirm == 'b2plus': target_pack_data_key = USER_PACK_DATA_KEY; pack_name_updated = "B2+ Pack"
             elif pack_source_confirm == 'luxembourg': target_pack_data_key = USER_LUX_PACK_DATA_KEY; pack_name_updated = "Luxembourg Phrases Pack"
-            # Add other pack sources here if they are deletable
             if target_pack_data_key and target_pack_data_key in context.user_data:
                 pack_data_store = context.user_data.get(target_pack_data_key, {})
                 if 'pack_words_status' in pack_data_store:
@@ -792,13 +952,112 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         elif callback_data_full == CALLBACK_START_JULIE_PACK:
             await query.edit_message_reply_markup(reply_markup=None)
             await julie_pack_placeholder_command(simplified_update_obj, context, called_from_callback=True)
-        # --- NEW: Handle Sergei Pack Start ---
         elif callback_data_full == CALLBACK_START_SERGEI_PACK:
             await query.edit_message_reply_markup(reply_markup=None)
             await sergei_pack_placeholder_command(simplified_update_obj, context, called_from_callback=True)
-        # --- END NEW ---
 
-        # --- NEW: Terminate Vocabulary Logic ---
+        elif callback_data_full == CALLBACK_DESC_B2_PACK:
+            desc = f"🇬🇧 **B2+ English Pack Description**\n\n{PACK_DESCRIPTIONS['b2plus']}{GENERIC_NEXT_PACK_NOTE}"
+            await context.bot.send_message(chat_id=chat_id, text=desc, parse_mode='Markdown', reply_to_message_id=query.message.message_id)
+        elif callback_data_full == CALLBACK_DESC_LUX_PACK:
+            desc = f"🇱🇺 **Luxembourg Phrases Pack Description**\n\n{PACK_DESCRIPTIONS['luxembourg']}{GENERIC_NEXT_PACK_NOTE}"
+            await context.bot.send_message(chat_id=chat_id, text=desc, parse_mode='Markdown', reply_to_message_id=query.message.message_id)
+        elif callback_data_full == CALLBACK_DESC_JULIE_PACK:
+            desc = f"🎓 **Julie Stolyarchuk's Pack Description**\n\n{PACK_DESCRIPTIONS['julie']}{GENERIC_NEXT_PACK_NOTE}"
+            await context.bot.send_message(chat_id=chat_id, text=desc, parse_mode='Markdown', reply_to_message_id=query.message.message_id)
+        elif callback_data_full == CALLBACK_DESC_SERGEI_PACK:
+            desc = f"🧑‍🏫 **@sergeitheteacher's New Pack Description**\n\n{PACK_DESCRIPTIONS['sergei']}{GENERIC_NEXT_PACK_NOTE}"
+            await context.bot.send_message(chat_id=chat_id, text=desc, parse_mode='Markdown', reply_to_message_id=query.message.message_id)
+        
+        elif callback_data_full == CALLBACK_INTENSITY_SETTINGS:
+            daily_reminders_count = 0
+            if context.job_queue:
+                today = datetime.date.today()
+                for job in context.job_queue.jobs():
+                    if job.chat_id == chat_id and job.next_run_time:
+                        job_next_run_date = job.next_run_time.astimezone(datetime.timezone.utc).date()
+                        if job_next_run_date == today:
+                            daily_reminders_count += 1
+            current_intensity_name, current_intensity_emoji = get_learning_intensity(daily_reminders_count)
+
+            intensity_message = (
+                f"⚙️ **Learning Intensity**\n\n"
+                f"Your current intensity (based on today's reminders): {current_intensity_emoji} {current_intensity_name} ({daily_reminders_count} reminders today).\n\n"
+                "We generally recommend keeping your learning intensity up to a 'Medium' level. "
+                "A lower, consistent intensity often makes it easier to build a strong learning habit.\n\n"
+                "Adjusting the number of *new pack words* added daily can help manage future intensity."
+            )
+            kbd = InlineKeyboardMarkup([[InlineKeyboardButton("📉 Adjust New Pack Word Pace", callback_data=CALLBACK_DECREASE_INTENSITY)]])
+            # Send as a new message in reply to the original dictionary message
+            await context.bot.send_message(chat_id=chat_id, text=intensity_message, reply_markup=kbd, parse_mode='Markdown', reply_to_message_id=query.message.message_id)
+            await query.answer() 
+
+        elif callback_data_full == CALLBACK_DECREASE_INTENSITY:
+            user_intensity_modifier = context.user_data.get(USER_INTENSITY_MODIFIER_KEY, 1.0)
+            
+            date_current_intensity = calculate_projected_pack_completion_date(context.user_data, context.job_queue, chat_id, current_intensity_modifier=user_intensity_modifier)
+            
+            # Propose to double the modifier (halve the speed)
+            # If modifier is already high (e.g., meaning 1 word per day or less), this might not change much
+            proposed_new_modifier = user_intensity_modifier * 2.0 
+            # Cap modifier to avoid extremely slow rates if MAX_PACK_WORDS_PER_DAY is already low
+            if (MAX_PACK_WORDS_PER_DAY / proposed_new_modifier) < 1 and MAX_PACK_WORDS_PER_DAY >= 1:
+                 proposed_new_modifier = user_intensity_modifier * (MAX_PACK_WORDS_PER_DAY / max(1, round(MAX_PACK_WORDS_PER_DAY / user_intensity_modifier))) # Make it such that it results in 1 word
+                 if proposed_new_modifier <= user_intensity_modifier: # If no change or worse, keep current
+                     proposed_new_modifier = user_intensity_modifier
+
+
+            date_new_intensity = calculate_projected_pack_completion_date(context.user_data, context.job_queue, chat_id, new_intensity_modifier=proposed_new_modifier)
+
+            date_current_str = date_current_intensity.strftime("%Y-%m-%d") if date_current_intensity else "N/A"
+            date_new_str = date_new_intensity.strftime("%Y-%m-%d") if date_new_intensity else "N/A (or no change)"
+
+            decrease_message = (
+                f"Currently, your settings lead to new pack words being added at a certain pace. "
+                f"With this pace, your planned vocabulary is projected to complete its full reminder cycle around: **{date_current_str}**.\n\n"
+                f"We can slow down the introduction of *new pack words*. "
+            )
+            
+            if date_new_str != "N/A (or no change)" and date_new_str != date_current_str:
+                decrease_message += (
+                    f"If adjusted, this would extend the projected completion to approximately: **{date_new_str}**.\n\n"
+                    "This change only affects how quickly *new items from packs* are added to your learning schedule. "
+                    "It does **not** change reminders for items already active in your dictionary.\n\n"
+                    "Are you OK to apply this adjustment?"
+                )
+                kbd = InlineKeyboardMarkup([
+                    [InlineKeyboardButton(f"✅ Yes, slow to {proposed_new_modifier:.1f}x modifier", callback_data=f"{CALLBACK_DECREASE_INTENSITY_CONFIRM}{proposed_new_modifier}")],
+                    [InlineKeyboardButton("❌ No, keep current pace", callback_data=CALLBACK_DECREASE_INTENSITY_CANCEL)]
+                ])
+            else:
+                decrease_message += (
+                    "Your current pace for adding new pack words is already very slow, or no new pack words are pending for active packs. "
+                    "No further slowdown is applicable via this option at the moment."
+                )
+                kbd = InlineKeyboardMarkup([[InlineKeyboardButton("Okay", callback_data=CALLBACK_DECREASE_INTENSITY_CANCEL)]])
+            
+            # Edit the message that contained the "Adjust New Pack Word Pace" button
+            await query.edit_message_text(text=decrease_message, reply_markup=kbd, parse_mode='Markdown')
+
+
+        elif callback_data_full.startswith(CALLBACK_DECREASE_INTENSITY_CONFIRM):
+            try:
+                new_modifier_str = callback_data_full.split(":")[1]
+                new_modifier = float(new_modifier_str)
+                context.user_data[USER_INTENSITY_MODIFIER_KEY] = new_modifier
+                await query.edit_message_text(
+                    f"✅ Pace for adding new pack words has been adjusted. Your new intensity modifier is {new_modifier:.1f}x (meaning {1/new_modifier:.2f} times the base speed, or effectively {max(1,round(MAX_PACK_WORDS_PER_DAY/new_modifier))} words/day from new packs).\n"
+                    "This will affect future scheduling of new items from packs.",
+                    reply_markup=None, parse_mode='Markdown'
+                )
+                logger.info(f"User {query.from_user.id} set intensity modifier to {new_modifier}")
+            except (IndexError, ValueError) as e:
+                logger.error(f"Error parsing new modifier from callback: {callback_data_full} - {e}")
+                await query.edit_message_text("😕 Error applying change. Invalid modifier.", reply_markup=None)
+
+        elif callback_data_full == CALLBACK_DECREASE_INTENSITY_CANCEL:
+            await query.edit_message_text("👌 Pace for adding new pack words remains unchanged.", reply_markup=None)
+
         elif callback_data_full == CALLBACK_TERMINATE_VOCAB_REQUEST:
             kbd = InlineKeyboardMarkup([
                 [InlineKeyboardButton("✅ Yes, Terminate ALL", callback_data=CALLBACK_TERMINATE_VOCAB_CONFIRM)],
@@ -811,27 +1070,20 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             )
         elif callback_data_full == CALLBACK_TERMINATE_VOCAB_CONFIRM:
             logger.info(f"User {query.from_user.id} in chat {chat_id} confirmed vocabulary termination.")
-            # Remove all jobs for this chat_id
             jobs_removed_count = 0
             if context.job_queue:
-                for job in context.job_queue.get_jobs_by_name(f"rem_{chat_id}_*"): # Wildcard might not work, iterate all
-                    job.schedule_removal()
-                    jobs_removed_count +=1
-                # More robust: iterate all jobs and check chat_id
-                all_jobs = context.job_queue.jobs()
+                all_jobs = list(context.job_queue.jobs()) 
                 for job in all_jobs:
-                    if job.chat_id == chat_id:
+                    if job.chat_id == chat_id: 
                         job.schedule_removal()
-                        jobs_removed_count+=1 # This might double count if pattern above worked. Be cautious or use one method.
+                        jobs_removed_count +=1
             
-            # Clear pack data from user_data
             packs_cleared_count = 0
             for pack_key in ALL_USER_PACK_DATA_KEYS:
                 if pack_key in context.user_data:
                     del context.user_data[pack_key]
                     packs_cleared_count += 1
             
-            # Clear any dictionary specific settings from chat_data
             if 'dict_sort_key_name' in context.chat_data: del context.chat_data['dict_sort_key_name']
             if 'dict_sort_reverse' in context.chat_data: del context.chat_data['dict_sort_reverse']
             if 'dict_current_page' in context.chat_data: del context.chat_data['dict_current_page']
@@ -844,49 +1096,64 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             await context.bot.send_message(chat_id, "Your learning dictionary is now empty. You can start fresh!", reply_markup=REPLY_KEYBOARD)
 
         elif callback_data_full == CALLBACK_TERMINATE_VOCAB_CANCEL:
-            await query.edit_message_text("❌ Vocabulary termination cancelled.", reply_markup=None)
-        # --- END NEW ---
+            current_page = context.chat_data.get('dict_current_page', 1)
+            # We need to recalculate intensity for the dictionary view
+            daily_reminders_count_term_cancel = 0
+            if context.job_queue:
+                today = datetime.date.today()
+                for job_item_tc in context.job_queue.jobs():
+                    if job_item_tc.chat_id == chat_id and job_item_tc.next_run_time:
+                        job_next_run_date_tc = job_item_tc.next_run_time.astimezone(datetime.timezone.utc).date()
+                        if job_next_run_date_tc == today:
+                            daily_reminders_count_term_cancel += 1
+            intensity_name_tc, intensity_emoji_tc = get_learning_intensity(daily_reminders_count_term_cancel)
+            
+            dictionary_text_tc, _, _, _ = generate_dictionary_text(
+                chat_id, context.user_data, context.job_queue,
+                intensity_name_tc, intensity_emoji_tc,
+                page_number=current_page
+            )
+            # Re-show dictionary, but use the original keyboard from show_dictionary_command_wrapper
+            # This is a bit tricky, ideally show_dictionary_command_wrapper should be fully callable
+            # For now, just edit the text back to the dictionary content.
+            # The keyboard would need to be reconstructed. A simpler way is to just send a new message.
+            await query.edit_message_text(dictionary_text_tc, parse_mode='Markdown') # Keyboard will be lost
+            await query.answer("Termination cancelled.")
 
-        # --- NEW: Export Vocabulary Logic ---
+
         elif callback_data_full == CALLBACK_EXPORT_VOCAB:
             logger.info(f"User {query.from_user.id} in chat {chat_id} requested vocabulary export.")
-            
-            # Fetch all items. generate_dictionary_text returns (_, all_items_list, _, _)
-            # The second element is the full list of item tuples (msg_txt, reminders, next_run, job_data, status, est_start)
+            daily_reminders_count_export = 0 
+            if context.job_queue:
+                today = datetime.date.today()
+                for job_item_ex in context.job_queue.jobs():
+                    if job_item_ex.chat_id == chat_id and job_item_ex.next_run_time:
+                        job_next_run_date_ex = job_item_ex.next_run_time.astimezone(datetime.timezone.utc).date()
+                        if job_next_run_date_ex == today:
+                            daily_reminders_count_export += 1
+            intensity_name_ex, intensity_emoji_ex = get_learning_intensity(daily_reminders_count_export)
+
             _, all_items_tuples, _, _ = generate_dictionary_text(
                 chat_id, context.user_data, context.job_queue,
-                page_number=1, items_per_page=float('inf') # Get all items
+                intensity_name_ex, intensity_emoji_ex, 
+                page_number=1, items_per_page=float('inf') 
             )
-
             if not all_items_tuples:
                 await context.bot.send_message(chat_id, "Your learning dictionary is empty. Nothing to export.", reply_to_message_id=query.message.message_id)
                 return
-
-            # Extract just the words/phrases (the first element of each tuple)
             word_list = [item[0] for item in all_items_tuples]
-            
-            # Format as [word1, word2, ..., wordN]
-            # For very long lists, this string could exceed Telegram's message limit (4096 chars)
-            # A more robust solution for huge lists would be a .txt file, but request is for message.
-            if not word_list: # Should be caught by all_items_tuples check, but good to be safe
+            if not word_list: 
                  await context.bot.send_message(chat_id, "Your learning dictionary is empty. Nothing to export.", reply_to_message_id=query.message.message_id)
                  return
-
-            # Escape markdown special characters if any word itself contains them and you are not using parse_mode
-            # For a simple list string, direct join is fine.
-            export_string = "[" + ", ".join(f'"{html.escape(w)}"' for w in word_list) + "]" # Add quotes around each item
-
-            max_len = 4000 # Keep some buffer for Telegram message limits
+            export_string = "[" + ", ".join(f'"{html.escape(w)}"' for w in word_list) + "]"
+            max_len = 4000 
             if len(export_string) > max_len:
                 export_string = export_string[:max_len-20] + "... (list truncated)]"
                 await context.bot.send_message(chat_id, f"Your vocabulary list is very long! Here's a truncated version:\n\n{export_string}", reply_to_message_id=query.message.message_id)
             else:
                 await context.bot.send_message(chat_id, f"Your vocabulary list:\n\n{export_string}", reply_to_message_id=query.message.message_id)
-            
-            # No need to edit the original dictionary message for export
-            # await query.answer("Vocabulary exported!") # Optional: give feedback via answer()
+            await query.answer("Vocabulary list sent!")
 
-        # --- END NEW ---
 
         elif callback_data_full.startswith(CALLBACK_CLUE_REQUEST):
             word = callback_data_full[len(CALLBACK_CLUE_REQUEST):]; logger.info(f"Clue/Translate for '{word}'"); info_txt = get_clue_and_translations(word)
