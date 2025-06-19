@@ -1,4 +1,4 @@
-# Telegram Spaced Repetition Bot (Demo v6)
+# Telegram Spaced Repetition Bot (Demo v6.9)
 
 This Telegram bot helps users learn new English words and phrases using the Spaced Repetition System (SRS). It allows users to add vocabulary, receive reminders at increasing intervals, get phonetic clues, translations, AI-powered explanations, and manage their learning dictionary with sorting options.
 
